@@ -1,0 +1,9 @@
+# Builds results
+[Dd]ebug
+[Rr]elease
+[Oo]bj/
+x64/
+x86/
+
+# Database files
+*.db*
