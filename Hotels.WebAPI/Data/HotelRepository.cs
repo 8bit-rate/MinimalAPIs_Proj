@@ -3,9 +3,20 @@ public class HotelRepository : IHotelRepository
     private readonly HotelDbContext _context;
 
     public HotelRepository(HotelDbContext context) => _context = context;
-    public async Task<IList<Hotel>> GetHotelsAsync() => await _context.Hotels.ToListAsync();
-    public async Task<IList<Hotel>> GetHotelsAsync(string name) =>
+    public async Task<List<Hotel>> GetHotelsAsync() => await _context.Hotels.ToListAsync();
+    
+    //Search by name
+    public async Task<List<Hotel>> GetHotelsAsync(string name) =>
         await _context.Hotels.Where(h => h.Name.Contains(name)).ToListAsync();
+
+    // Search by coordinates
+    public async Task<List<Hotel>> GetHotelsAsync(Coordinate coordinate) =>
+        await _context.Hotels.Where(hotel =>
+            hotel.Latitude > coordinate.Latitude - 1 &&
+            hotel.Latitude < coordinate.Latitude + 1 &&
+            hotel.Longitude > coordinate.Longitude - 1 &&
+            hotel.Longitude < coordinate.Longitude + 1)
+        .ToListAsync();
     public async Task<Hotel> GetHotelAsync(int id) =>
         await _context.Hotels.FindAsync(new object[] {id});
         
