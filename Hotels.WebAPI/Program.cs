@@ -8,8 +8,27 @@ builder.Services.AddDbContext<HotelDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("SQLite"));
 });
 builder.Services.AddScoped<IHotelRepository, HotelRepository>();
+builder.Services.AddSingleton<ITokenService>(new TokenService());
+builder.Services.AddSingleton<IUserRepository>(new UserRepository());
+builder.Services.AddAuthorization();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options => {
+        options.TokenValidationParameters = new()
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"]!))
+        };
+    });
 
 var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 if(app.Environment.IsDevelopment())
 {
@@ -20,9 +39,26 @@ if(app.Environment.IsDevelopment())
     db.Database.EnsureCreated();
 }
 
+app.MapGet("/login", [AllowAnonymous] (HttpContext context,
+    ITokenService TokenService, IUserRepository UserRepository) =>
+        {
+            UserModel userModel = new() 
+            {
+                UserName = context.Request.Query["username"]!,
+                Password = context.Request.Query["password"]!
+            };
+
+            var userDto = UserRepository.GetUser(userModel);
+            if(userDto == null) return Results.Unauthorized();
+
+            var token = TokenService.BuildToken(builder.Configuration["Jwt:Key"]!,
+                builder.Configuration["Jwt:Issuer"]!, userDto);
+            
+            return Results.Ok(token);
+        });
 // GET
 // Get all
-app.MapGet("/hotels", async (IHotelRepository repo) => 
+app.MapGet("/hotels", [Authorize] async (IHotelRepository repo) => 
     Results.Extensions.Xml(await repo.GetHotelsAsync()))
     .Produces<IList<Hotel>>(StatusCodes.Status200OK)
     .WithName("GetAllHotels")
@@ -30,7 +66,7 @@ app.MapGet("/hotels", async (IHotelRepository repo) =>
     
 // Search by name
 app.MapGet("/hotels/search/name/{query}", 
-    async (IHotelRepository repo, string name) => 
+    [Authorize] async (IHotelRepository repo, string name) => 
         await repo.GetHotelsAsync(name) is IEnumerable<Hotel> hotels
             ? Results.Ok(hotels)
             : Results.NotFound(Array.Empty<Hotel>()))
@@ -42,7 +78,7 @@ app.MapGet("/hotels/search/name/{query}",
 
 // Search by coorditanes
 app.MapGet("/hotels/search/location/{coordinate}", 
-    async (IHotelRepository repo, Coordinate coordinate) =>
+    [Authorize] async (IHotelRepository repo, Coordinate coordinate) =>
         await repo.GetHotelsAsync(coordinate) is IEnumerable<Hotel> hotels
             ? Results.Ok(hotels)
             : Results.NotFound(Array.Empty<Hotel>))
@@ -53,7 +89,7 @@ app.MapGet("/hotels/search/location/{coordinate}",
     .ExcludeFromDescription();
 
 // Search by id
-app.MapGet("/hotels/{id}", async (IHotelRepository repo, int id) =>
+app.MapGet("/hotels/{id}", [Authorize] async (IHotelRepository repo, int id) =>
     await repo.GetHotelAsync(id) is Hotel hotel
         ? Results.Ok(hotel)
         : Results.NotFound())
@@ -62,7 +98,7 @@ app.MapGet("/hotels/{id}", async (IHotelRepository repo, int id) =>
     .WithTags("Getters");;
 
 // POST
-app.MapPost("/hotels", async (IHotelRepository repo, [FromBody] Hotel hotel) =>
+app.MapPost("/hotels", [Authorize] async (IHotelRepository repo, [FromBody] Hotel hotel) =>
     {
         await repo.InsertHotelAsync(hotel);
         await repo.SaveAsync();
@@ -74,7 +110,7 @@ app.MapPost("/hotels", async (IHotelRepository repo, [FromBody] Hotel hotel) =>
     .WithTags("Creators");
 
 // PUT
-app.MapPut("/hotels", async (IHotelRepository repo, [FromBody] Hotel hotel) => 
+app.MapPut("/hotels", [Authorize] async (IHotelRepository repo, [FromBody] Hotel hotel) => 
     {
         await repo.UpdateHotelAsync(hotel);
         await repo.SaveAsync();
@@ -85,7 +121,7 @@ app.MapPut("/hotels", async (IHotelRepository repo, [FromBody] Hotel hotel) =>
     .WithTags("Updaters");
 
 // DELETE
-app.MapDelete("/hotels/{id}", async (IHotelRepository repo, int id) => 
+app.MapDelete("/hotels/{id}", [Authorize] async (IHotelRepository repo, int id) => 
     {
         await repo.DeleteHotelAsync(id);
         await repo.SaveAsync();
